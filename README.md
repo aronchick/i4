@@ -102,6 +102,70 @@ go build -o sensor-gen .
 GOOS=linux GOARCH=amd64 go build -o sensor-gen-linux .
 ```
 
+## Expanso Pipelines
+
+This repo includes ready-to-use [Expanso](https://expanso.io) pipelines for edge data processing.
+
+### Sensor Enricher (Streaming)
+
+Adds lineage metadata and validation flags to each record in real-time:
+
+```bash
+# Stream from file
+cat output.jsonl | expanso-edge run pipelines/sensor-enricher.yaml
+
+# Stream directly from generator (10 seconds)
+./sensor-gen/sensor-gen -d 10s | expanso-edge run pipelines/sensor-enricher.yaml
+```
+
+Output adds lineage and validation:
+```json
+{
+  "sensor_id": "SNS-flo-2977",
+  "value": 12984.71,
+  "lineage": {
+    "edge_node": "edge-west-01",
+    "pipeline": "sensor-enricher",
+    "ingested_at": "2024-01-14T05:22:42.000Z"
+  },
+  "validated": true,
+  "is_anomaly": false
+}
+```
+
+### Sensor Processor (Batched)
+
+Batches records every 10 seconds with anomaly detection and summaries:
+
+```bash
+# Process with default batching (1000 records or 10s)
+./sensor-gen/sensor-gen -d 60s | expanso-edge run pipelines/sensor-processor.yaml
+
+# Custom batch settings
+cat data.jsonl | BATCH_SIZE=500 BATCH_PERIOD=5s expanso-edge run pipelines/sensor-processor.yaml
+```
+
+Output includes batch summaries:
+```json
+{
+  "batch_summary": {
+    "record_count": 1000,
+    "anomaly_count": 23,
+    "anomaly_rate": 2,
+    "batch_time": "2024-01-14T05:22:52.000Z",
+    "edge_node": "edge-west-01"
+  },
+  "records": [...]
+}
+```
+
+### Pipeline Features
+
+- **Lineage tracking**: Adds edge node ID, pipeline name, and ingestion timestamp
+- **Data validation**: Flags out-of-range values based on sensor type
+- **Anomaly detection**: Identifies pressure > 1500 psi, temp out of range, low quality scores
+- **Batching**: Configurable batch size and time window for efficient downstream processing
+
 ## Use Cases
 
 - Testing edge data validation/cleaning pipelines
