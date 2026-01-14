@@ -29,32 +29,52 @@ selector:
 
 config:
   input:
-    file:
-      paths:
-        - "${INPUT_FILE:/data/sensors/input.jsonl}"
-      scanner:
-        lines: {}
+    batched:
+      child:
+        file:
+          paths:
+            - "${INPUT_FILE:/data/sensors/input.jsonl}"
+          scanner:
+            lines: {}
+      policy:
+        count: ${BATCH_SIZE:1000}
+        period: "${BATCH_PERIOD:60s}"
+        processors:
+          - mapping: |
+              root = this
+              root.lineage = {
+                "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
+                "pipeline": "sensor-batched-to-s3",
+                "ingested_at": now().ts_format("2006-01-02T15:04:05.000Z")
+              }
 
-  pipeline:
-    processors:
-      # Enrich each record
-      - mapping: |
-          root = this
-          root.lineage = {
-            "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
-            "pipeline": "sensor-batched-to-s3",
-            "ingested_at": now().ts_format("2006-01-02T15:04:05.000Z")
-          }
+              let is_anomaly = this.type == "pressure" && this.value > 1500
+              let is_anomaly = $is_anomaly || (this.type == "temperature" && (this.value > 180 || this.value < -20))
+              let is_anomaly = $is_anomaly || (this.type == "flow_rate" && this.value > 50000)
+              let is_anomaly = $is_anomaly || this.quality_score < 0.8
 
-          let is_anomaly = this.type == "pressure" && this.value > 1500
-          let is_anomaly = $is_anomaly || (this.type == "temperature" && (this.value > 180 || this.value < -20))
-          let is_anomaly = $is_anomaly || (this.type == "flow_rate" && this.value > 50000)
-          let is_anomaly = $is_anomaly || this.quality_score < 0.8
+              root.data_quality = {
+                "is_anomaly": $is_anomaly,
+                "validated": true
+              }
 
-          root.data_quality = {
-            "is_anomaly": $is_anomaly,
-            "validated": true
-          }
+          - archive:
+              format: json_array
+          - mapping: |
+              let records = this
+              let count = $records.length()
+              let anomaly_count = $records.filter(r -> r.data_quality.is_anomaly == true).length()
+
+              root = {
+                "batch_meta": {
+                  "record_count": $count,
+                  "anomaly_count": $anomaly_count,
+                  "anomaly_rate_pct": if $count > 0 { (($anomaly_count / $count) * 100).round() } else { 0 },
+                  "batch_time": now().ts_format("2006-01-02T15:04:05.000Z"),
+                  "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown")
+                },
+                "records": $records
+              }
 
   output:
     aws_s3:
@@ -62,24 +82,3 @@ config:
       path: '${S3_PREFIX:sensor-data/}${!timestamp_unix:2006}/${!timestamp_unix:01}/${!timestamp_unix:02}/${!env("HOSTNAME").or("edge")}_${!timestamp_unix_nano()}.json'
       region: "${AWS_REGION:us-east-1}"
       content_type: "application/json"
-    batching:
-      count: ${BATCH_SIZE:1000}
-      period: "${BATCH_PERIOD:60s}"
-      processors:
-        - archive:
-            format: json_array
-        - mapping: |
-            let records = this
-            let count = $records.length()
-            let anomaly_count = $records.filter(r -> r.data_quality.is_anomaly == true).length()
-
-            root = {
-              "batch_meta": {
-                "record_count": $count,
-                "anomaly_count": $anomaly_count,
-                "anomaly_rate_pct": if $count > 0 { (($anomaly_count / $count) * 100).round() } else { 0 },
-                "batch_time": now().ts_format("2006-01-02T15:04:05.000Z"),
-                "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown")
-              },
-              "records": $records
-            }

@@ -15,19 +15,21 @@
 #   - OUTPUT_DIR: Directory for batch files (default: ./output)
 
 input:
-  file:
-    paths:
-      - "${INPUT_FILE:output.jsonl}"
-    scanner:
-      lines: {}
+  batched:
+    child:
+      file:
+        paths:
+          - "${INPUT_FILE:output.jsonl}"
+        scanner:
+          lines: {}
+    policy:
+      count: ${BATCH_SIZE:1000}
+      period: "${BATCH_PERIOD:10s}"
+      processors:
+        - archive:
+            format: json_array
 
 output:
   file:
     path: '${OUTPUT_DIR:./output}/batch_${! timestamp_unix_nano() }.json'
     codec: all-bytes
-  batching:
-    count: ${BATCH_SIZE:1000}
-    period: "${BATCH_PERIOD:10s}"
-    processors:
-      - archive:
-          format: json_array

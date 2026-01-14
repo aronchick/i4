@@ -24,64 +24,62 @@ selector:
 
 config:
   input:
-    file:
-      paths:
-        - "${INPUT_FILE:/data/sensors/input.jsonl}"
-      scanner:
-        lines: {}
+    batched:
+      child:
+        file:
+          paths:
+            - "${INPUT_FILE:/data/sensors/input.jsonl}"
+          scanner:
+            lines: {}
+      policy:
+        count: ${BATCH_SIZE:1000}
+        period: "${BATCH_PERIOD:10s}"
+        processors:
+          - mapping: |
+              root = this
+              root.lineage = {
+                "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
+                "pipeline": "sensor-batched-enriched",
+                "ingested_at": now().ts_format("2006-01-02T15:04:05.000Z")
+              }
 
-  pipeline:
-    processors:
-      # Enrich each record
-      - mapping: |
-          root = this
-          root.lineage = {
-            "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
-            "pipeline": "sensor-batched-enriched",
-            "ingested_at": now().ts_format("2006-01-02T15:04:05.000Z")
-          }
+              let is_anomaly = false
+              let anomaly_reasons = []
+              let is_anomaly = if this.type == "pressure" && this.value > 1500 { true } else { $is_anomaly }
+              let anomaly_reasons = if this.type == "pressure" && this.value > 1500 { $anomaly_reasons.append("pressure_exceeded") } else { $anomaly_reasons }
+              let is_anomaly = if this.type == "temperature" && (this.value > 180 || this.value < -20) { true } else { $is_anomaly }
+              let anomaly_reasons = if this.type == "temperature" && (this.value > 180 || this.value < -20) { $anomaly_reasons.append("temperature_out_of_range") } else { $anomaly_reasons }
+              let is_anomaly = if this.type == "flow_rate" && this.value > 50000 { true } else { $is_anomaly }
+              let anomaly_reasons = if this.type == "flow_rate" && this.value > 50000 { $anomaly_reasons.append("flow_rate_exceeded") } else { $anomaly_reasons }
+              let is_anomaly = if this.quality_score < 0.8 { true } else { $is_anomaly }
+              let anomaly_reasons = if this.quality_score < 0.8 { $anomaly_reasons.append("low_quality_score") } else { $anomaly_reasons }
 
-          let is_anomaly = false
-          let anomaly_reasons = []
-          let is_anomaly = if this.type == "pressure" && this.value > 1500 { true } else { $is_anomaly }
-          let anomaly_reasons = if this.type == "pressure" && this.value > 1500 { $anomaly_reasons.append("pressure_exceeded") } else { $anomaly_reasons }
-          let is_anomaly = if this.type == "temperature" && (this.value > 180 || this.value < -20) { true } else { $is_anomaly }
-          let anomaly_reasons = if this.type == "temperature" && (this.value > 180 || this.value < -20) { $anomaly_reasons.append("temperature_out_of_range") } else { $anomaly_reasons }
-          let is_anomaly = if this.type == "flow_rate" && this.value > 50000 { true } else { $is_anomaly }
-          let anomaly_reasons = if this.type == "flow_rate" && this.value > 50000 { $anomaly_reasons.append("flow_rate_exceeded") } else { $anomaly_reasons }
-          let is_anomaly = if this.quality_score < 0.8 { true } else { $is_anomaly }
-          let anomaly_reasons = if this.quality_score < 0.8 { $anomaly_reasons.append("low_quality_score") } else { $anomaly_reasons }
+              root.data_quality = {
+                "is_anomaly": $is_anomaly,
+                "anomaly_reasons": $anomaly_reasons,
+                "validated": true
+              }
 
-          root.data_quality = {
-            "is_anomaly": $is_anomaly,
-            "anomaly_reasons": $anomaly_reasons,
-            "validated": true
-          }
+          - archive:
+              format: json_array
+          - mapping: |
+              let records = this
+              let count = $records.length()
+              let anomaly_count = $records.filter(r -> r.data_quality.is_anomaly == true).length()
+
+              root = {
+                "batch_meta": {
+                  "record_count": $count,
+                  "anomaly_count": $anomaly_count,
+                  "anomaly_rate_pct": if $count > 0 { (($anomaly_count / $count) * 100).round() } else { 0 },
+                  "batch_time": now().ts_format("2006-01-02T15:04:05.000Z"),
+                  "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
+                  "pipeline": "sensor-batched-enriched"
+                },
+                "records": $records
+              }
 
   output:
     file:
       path: '${OUTPUT_DIR:/data/sensors/batched}/batch_${! timestamp_unix_nano() }.json'
       codec: all-bytes
-    batching:
-      count: ${BATCH_SIZE:1000}
-      period: "${BATCH_PERIOD:10s}"
-      processors:
-        # Create batch with summary
-        - archive:
-            format: json_array
-        - mapping: |
-            let records = this
-            let count = $records.length()
-            let anomaly_count = $records.filter(r -> r.data_quality.is_anomaly == true).length()
-
-            root = {
-              "batch_meta": {
-                "record_count": $count,
-                "anomaly_count": $anomaly_count,
-                "anomaly_rate_pct": if $count > 0 { (($anomaly_count / $count) * 100).round() } else { 0 },
-                "batch_time": now().ts_format("2006-01-02T15:04:05.000Z"),
-                "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
-                "pipeline": "sensor-batched-enriched"
-              },
-              "records": $records
-            }
