@@ -1,0 +1,114 @@
+# Job: IoT Sensor Batched with Lineage & Validation
+# Generates sensor data, enriches, validates, creates batch summaries
+#
+# Usage:
+#   expanso-cli job deploy jobs/sensor-batched-enriched-job.yaml
+#
+# Configuration (set on edge nodes):
+#   - GEN_INTERVAL: Time between readings (default: 100us)
+#   - BATCH_SIZE: Records per batch (default: 1000)
+#   - BATCH_PERIOD: Max batch time (default: 10s)
+#   - OUTPUT_DIR: Output directory (default: /data/sensor-batches)
+#   - EDGE_NODE_ID: Node identifier (default: hostname)
+
+name: sensor-batched-enriched
+type: pipeline
+
+selector:
+  match_labels:
+    role: edge-processor
+
+config:
+  input:
+    batched:
+      child:
+        generate:
+          interval: "${GEN_INTERVAL:100us}"
+          count: 0
+          mapping: |
+            let sensor_types = ["pressure", "temperature", "flow_rate", "vibration", "corrosion", "humidity", "gas_detector", "valve_position"]
+            let units = {"pressure": "psi", "temperature": "fahrenheit", "flow_rate": "bbl/hr", "vibration": "mm/s", "corrosion": "mpy", "humidity": "percent", "gas_detector": "ppm", "valve_position": "percent"}
+            let ranges = {"pressure": [200, 1500], "temperature": [-20, 180], "flow_rate": [0, 50000], "vibration": [0, 25], "corrosion": [0, 50], "humidity": [0, 100], "gas_detector": [0, 1000], "valve_position": [0, 100]}
+            let pipelines = ["PIPE-TX-001", "PIPE-TX-002", "PIPE-OK-001", "PIPE-LA-001", "PIPE-NM-001", "PIPE-CO-001", "PIPE-WY-001", "PIPE-ND-001"]
+            let statuses = ["normal", "normal", "normal", "normal", "warning", "maintenance"]
+            let alerts = ["", "", "", "", "", "low", "medium", "high"]
+
+            let type_idx = random_int(max: 8)
+            let sensor_type = $sensor_types.index($type_idx)
+            let range = $ranges.get($sensor_type)
+            let min_val = $range.index(0)
+            let max_val = $range.index(1)
+            let base_value = $min_val + (random_int(max: 1000000) / 1000000.0) * ($max_val - $min_val)
+            let is_anomaly_roll = random_int(max: 100) < 2
+            let value = if $is_anomaly_roll { $max_val + (random_int(max: 1000000) / 1000000.0) * $max_val * 0.2 } else { $base_value }
+
+            root = {
+              "sensor_id": "SNS-%s-%04d".format($sensor_type.slice(0, 3), random_int(max: 10000)),
+              "timestamp": now().ts_format("2006-01-02T15:04:05.000000Z"),
+              "type": $sensor_type,
+              "value": $value,
+              "unit": $units.get($sensor_type),
+              "location": {
+                "lat": 25.0 + (random_int(max: 1000000) / 1000000.0) * 20,
+                "lon": -105.0 + (random_int(max: 1000000) / 1000000.0) * 15,
+                "mile_post": (random_int(max: 1000000) / 1000000.0) * 500
+              },
+              "pipeline_id": $pipelines.index(random_int(max: 8)),
+              "status": $statuses.index(random_int(max: 6)),
+              "quality_score": 0.85 + (random_int(max: 1000000) / 1000000.0) * 0.15,
+              "alert_level": $alerts.index(random_int(max: 8))
+            }
+      policy:
+        count: ${BATCH_SIZE:1000}
+        period: "${BATCH_PERIOD:10s}"
+        processors:
+          # Enrich each record
+          - mapping: |
+              root = this
+              root.lineage = {
+                "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
+                "pipeline": "sensor-batched-enriched",
+                "ingested_at": now().ts_format("2006-01-02T15:04:05.000Z")
+              }
+
+              let is_anomaly = false
+              let anomaly_reasons = []
+              let is_anomaly = if this.type == "pressure" && this.value > 1500 { true } else { $is_anomaly }
+              let anomaly_reasons = if this.type == "pressure" && this.value > 1500 { $anomaly_reasons.append("pressure_exceeded") } else { $anomaly_reasons }
+              let is_anomaly = if this.type == "temperature" && (this.value > 180 || this.value < -20) { true } else { $is_anomaly }
+              let anomaly_reasons = if this.type == "temperature" && (this.value > 180 || this.value < -20) { $anomaly_reasons.append("temperature_out_of_range") } else { $anomaly_reasons }
+              let is_anomaly = if this.type == "flow_rate" && this.value > 50000 { true } else { $is_anomaly }
+              let anomaly_reasons = if this.type == "flow_rate" && this.value > 50000 { $anomaly_reasons.append("flow_rate_exceeded") } else { $anomaly_reasons }
+              let is_anomaly = if this.quality_score < 0.8 { true } else { $is_anomaly }
+              let anomaly_reasons = if this.quality_score < 0.8 { $anomaly_reasons.append("low_quality_score") } else { $anomaly_reasons }
+
+              root.data_quality = {
+                "is_anomaly": $is_anomaly,
+                "anomaly_reasons": $anomaly_reasons,
+                "validated": true
+              }
+
+          # Create batch with summary
+          - archive:
+              format: json_array
+          - mapping: |
+              let records = this
+              let count = $records.length()
+              let anomaly_count = $records.filter(r -> r.data_quality.is_anomaly == true).length()
+
+              root = {
+                "batch_meta": {
+                  "record_count": $count,
+                  "anomaly_count": $anomaly_count,
+                  "anomaly_rate_pct": if $count > 0 { (($anomaly_count / $count) * 100).round() } else { 0 },
+                  "batch_time": now().ts_format("2006-01-02T15:04:05.000Z"),
+                  "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
+                  "pipeline": "sensor-batched-enriched"
+                },
+                "records": $records
+              }
+
+  output:
+    file:
+      path: '${OUTPUT_DIR:/data/sensor-batches}/batch_${! timestamp_unix_nano() }.json'
+      codec: all-bytes

@@ -104,135 +104,129 @@ GOOS=linux GOARCH=amd64 go build -o sensor-gen-linux .
 
 ## Expanso Pipelines
 
-This repo includes ready-to-use [Expanso](https://expanso.io) pipelines for edge data processing.
+Self-contained [Expanso](https://expanso.io) pipelines with built-in data generation. No external input needed - just run.
 
-### Sensor Enricher (Streaming)
-
-Adds lineage metadata and validation flags to each record in real-time:
+### Local Testing
 
 ```bash
-# Stream from file
-cat output.jsonl | expanso-edge run pipelines/sensor-enricher.yaml
+# Basic batched output (1000 records per file, every 10s)
+expanso-edge run pipelines/sensor-batched.yaml
 
-# Stream directly from generator (10 seconds)
-./sensor-gen/sensor-gen -d 10s | expanso-edge run pipelines/sensor-enricher.yaml
+# With lineage, validation, and batch summaries
+expanso-edge run pipelines/sensor-batched-enriched.yaml
+
+# Custom settings
+BATCH_SIZE=500 BATCH_PERIOD=5s OUTPUT_DIR=./data \
+  expanso-edge run pipelines/sensor-batched-enriched.yaml
 ```
 
-Output adds lineage and validation:
+### Pipeline Pattern
+
+All pipelines use the batched input pattern:
+
+```yaml
+input:
+  batched:
+    child:
+      generate:
+        interval: 100us          # ~10k/sec
+        mapping: 'root = {...}'  # Sensor data
+    policy:
+      count: 1000               # Records per batch
+      period: 10s               # Or flush after 10s
+      processors:
+        - archive:
+            format: json_array  # [{},{},...] per batch
+
+output:
+  file:
+    path: './output/batch_${! timestamp_unix_nano() }.json'
+    codec: all-bytes
+```
+
+### Output Format (Enriched)
+
 ```json
 {
-  "sensor_id": "SNS-flo-2977",
-  "value": 12984.71,
-  "lineage": {
-    "edge_node": "edge-west-01",
-    "pipeline": "sensor-enricher",
-    "ingested_at": "2024-01-14T05:22:42.000Z"
-  },
-  "validated": true,
-  "is_anomaly": false
-}
-```
-
-### Sensor Processor (Batched)
-
-Batches records every 10 seconds with anomaly detection and summaries:
-
-```bash
-# Process with default batching (1000 records or 10s)
-./sensor-gen/sensor-gen -d 60s | expanso-edge run pipelines/sensor-processor.yaml
-
-# Custom batch settings
-cat data.jsonl | BATCH_SIZE=500 BATCH_PERIOD=5s expanso-edge run pipelines/sensor-processor.yaml
-```
-
-Output includes batch summaries:
-```json
-{
-  "batch_summary": {
+  "batch_meta": {
     "record_count": 1000,
     "anomaly_count": 23,
-    "anomaly_rate": 2,
+    "anomaly_rate_pct": 2,
     "batch_time": "2024-01-14T05:22:52.000Z",
-    "edge_node": "edge-west-01"
+    "edge_node": "edge-west-01",
+    "pipeline": "sensor-batched-enriched"
   },
-  "records": [...]
+  "records": [
+    {
+      "sensor_id": "SNS-flo-2977",
+      "value": 12984.71,
+      "lineage": {
+        "edge_node": "edge-west-01",
+        "pipeline": "sensor-batched-enriched",
+        "ingested_at": "2024-01-14T05:22:42.000Z"
+      },
+      "data_quality": {
+        "is_anomaly": false,
+        "anomaly_reasons": [],
+        "validated": true
+      }
+    }
+  ]
 }
 ```
-
-### Pipeline Features
-
-- **Lineage tracking**: Adds edge node ID, pipeline name, and ingestion timestamp
-- **Data validation**: Flags out-of-range values based on sensor type
-- **Anomaly detection**: Identifies pressure > 1500 psi, temp out of range, low quality scores
-- **Batching**: Configurable batch size and time window for efficient downstream processing
 
 ## Deploy to Expanso Cloud
 
-Ready-to-deploy job specs are in the `jobs/` directory.
+Job specs in `jobs/` are ready for `expanso-cli job deploy`.
 
 ### Prerequisites
 
 ```bash
-# Configure Expanso CLI with your profile
 expanso-cli profile save prod --endpoint api.expanso.io --token YOUR_TOKEN --select
-
-# Verify connection
 expanso-cli node list
 ```
 
 ### Available Jobs
 
-| Job | Description | Input | Output |
-|-----|-------------|-------|--------|
-| `sensor-enricher-job.yaml` | Streaming enrichment | stdin | stdout |
-| `sensor-processor-job.yaml` | Batched with summaries | stdin | stdout (batched) |
-| `sensor-to-s3-job.yaml` | Production S3 upload | stdin | S3 (batched) |
-| `sensor-file-watcher-job.yaml` | Watch directory for files | file | stdout |
+| Job | Description | Output |
+|-----|-------------|--------|
+| `sensor-batched-job.yaml` | Basic batched generation | Local files |
+| `sensor-batched-enriched-job.yaml` | With lineage + validation | Local files |
+| `sensor-batched-to-s3-job.yaml` | Production S3 upload | S3 (partitioned) |
 
-### Deploy a Job
+### Deploy
 
 ```bash
-# Deploy streaming enricher to nodes with role=edge-processor
-expanso-cli job deploy jobs/sensor-enricher-job.yaml
+# Deploy to nodes with role=edge-processor
+expanso-cli job deploy jobs/sensor-batched-enriched-job.yaml
 
 # Check status
-expanso-cli job describe sensor-enricher
-expanso-cli execution list --job sensor-enricher
-
-# View logs
-expanso-cli job logs sensor-enricher
+expanso-cli job describe sensor-batched-enriched
+expanso-cli execution list --job sensor-batched-enriched
 ```
 
-### Configure for S3 Output
+### S3 Configuration
 
-Set these on your edge nodes before deploying `sensor-to-s3-job.yaml`:
+For `sensor-batched-to-s3-job.yaml`, set on edge nodes:
 
 ```bash
-# Required
-export S3_BUCKET="my-sensor-data-bucket"
-
-# Optional (have defaults)
-export AWS_REGION="us-east-1"
-export S3_PREFIX="sensor-data/"
-export BATCH_SIZE=1000
-export BATCH_PERIOD="60s"
+export S3_BUCKET="my-sensor-bucket"     # Required
+export AWS_REGION="us-east-1"           # Optional
+export S3_PREFIX="sensor-data/"         # Optional
+export BATCH_PERIOD="60s"               # Optional (default 60s for S3)
 ```
+
+S3 path pattern: `sensor-data/2024/01/14/edge-hostname_1705234567890123456.json`
 
 ### Node Labels
 
-Jobs use selectors to target specific nodes. Label your edge nodes appropriately:
-
 ```yaml
-# For stdin-based jobs
+# For file output jobs
 role: edge-processor
 
 # For S3 output jobs
 role: edge-processor
 output: s3
-
-# For file watcher jobs
-role: edge-processor
-input: file
 ```
 
 ## Use Cases
