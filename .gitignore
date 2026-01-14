@@ -1,0 +1,10 @@
+# Output files
+*.jsonl
+output.json
+
+# OS files
+.DS_Store
+
+# Environment files
+.env
+.envrc
