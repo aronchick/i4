@@ -1,0 +1,99 @@
+# Job: IoT Sensor Processor (Batched)
+# Deploys the batched sensor processing pipeline with anomaly detection to Expanso Cloud
+#
+# Usage:
+#   # Deploy to all nodes with env=edge label
+#   expanso-cli job deploy jobs/sensor-processor-job.yaml
+#
+#   # Check deployment status
+#   expanso-cli job describe sensor-processor
+#   expanso-cli execution list --job sensor-processor
+#
+#   # View logs
+#   expanso-cli job logs sensor-processor
+#
+# Prerequisites:
+#   - Expanso CLI configured with profile: expanso-cli profile list
+#   - Edge nodes running with appropriate labels
+
+name: sensor-processor
+type: pipeline
+
+# Target nodes - adjust labels to match your infrastructure
+selector:
+  match_labels:
+    role: edge-processor
+    # Uncomment to target specific regions/environments:
+    # env: production
+    # region: us-west
+
+config:
+  input:
+    label: "sensor_stdin_reader"
+    stdin:
+      codec: lines
+
+  pipeline:
+    processors:
+      # Parse JSON and add lineage metadata
+      - mapping: |
+          root = this
+
+          # Add lineage information
+          root.lineage = {
+            "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
+            "pipeline": "sensor-processor",
+            "pipeline_version": "1.0.0",
+            "ingested_at": now().ts_format("2006-01-02T15:04:05.000Z"),
+            "source_file": env("INPUT_FILE").or("stdin")
+          }
+
+          # Data quality checks - flag anomalies
+          let is_anomaly = false
+          let anomaly_reasons = []
+
+          # Check for out-of-range values based on sensor type
+          let is_anomaly = if this.type == "pressure" && this.value > 1500 { true } else { $is_anomaly }
+          let anomaly_reasons = if this.type == "pressure" && this.value > 1500 { $anomaly_reasons.append("pressure_exceeded") } else { $anomaly_reasons }
+
+          let is_anomaly = if this.type == "temperature" && (this.value > 180 || this.value < -20) { true } else { $is_anomaly }
+          let anomaly_reasons = if this.type == "temperature" && (this.value > 180 || this.value < -20) { $anomaly_reasons.append("temperature_out_of_range") } else { $anomaly_reasons }
+
+          let is_anomaly = if this.type == "flow_rate" && this.value > 50000 { true } else { $is_anomaly }
+          let anomaly_reasons = if this.type == "flow_rate" && this.value > 50000 { $anomaly_reasons.append("flow_rate_exceeded") } else { $anomaly_reasons }
+
+          let is_anomaly = if this.quality_score < 0.8 { true } else { $is_anomaly }
+          let anomaly_reasons = if this.quality_score < 0.8 { $anomaly_reasons.append("low_quality_score") } else { $anomaly_reasons }
+
+          root.data_quality = {
+            "is_anomaly": $is_anomaly,
+            "anomaly_reasons": $anomaly_reasons,
+            "validated": true
+          }
+
+  output:
+    label: "batched_stdout"
+    stdout:
+      codec: lines
+    batching:
+      count: 1000
+      period: "10s"
+      processors:
+        # Create a summary for each batch
+        - archive:
+            format: json_array
+        - mapping: |
+            let records = this
+            let count = $records.length()
+            let anomaly_count = $records.filter(r -> r.data_quality.is_anomaly == true).length()
+
+            root = {
+              "batch_summary": {
+                "record_count": $count,
+                "anomaly_count": $anomaly_count,
+                "anomaly_rate": if $count > 0 { ($anomaly_count / $count * 100).round() } else { 0 },
+                "batch_time": now().ts_format("2006-01-02T15:04:05.000Z"),
+                "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown")
+              },
+              "records": $records
+            }

@@ -1,0 +1,54 @@
+# Job: IoT Sensor Enricher
+# Deploys the streaming sensor enrichment pipeline to Expanso Cloud
+#
+# Usage:
+#   # Deploy to all nodes with env=edge label
+#   expanso-cli job deploy jobs/sensor-enricher-job.yaml
+#
+#   # Check deployment status
+#   expanso-cli job describe sensor-enricher
+#   expanso-cli execution list --job sensor-enricher
+#
+#   # View logs
+#   expanso-cli job logs sensor-enricher
+#
+# Prerequisites:
+#   - Expanso CLI configured with profile: expanso-cli profile list
+#   - Edge nodes running with appropriate labels
+
+name: sensor-enricher
+type: pipeline
+
+# Target nodes - adjust labels to match your infrastructure
+selector:
+  match_labels:
+    role: edge-processor
+    # Uncomment to target specific regions/environments:
+    # env: production
+    # region: us-west
+
+config:
+  input:
+    label: "sensor_stdin_reader"
+    stdin:
+      codec: lines
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+
+          # Add lineage metadata
+          root.lineage = {
+            "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
+            "pipeline": "sensor-enricher",
+            "ingested_at": now().ts_format("2006-01-02T15:04:05.000Z")
+          }
+
+          # Simple validation flag
+          root.validated = true
+          root.is_anomaly = this.alert_level == "high" || this.alert_level == "medium" || this.quality_score < 0.85
+
+  output:
+    stdout:
+      codec: lines

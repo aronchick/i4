@@ -166,6 +166,75 @@ Output includes batch summaries:
 - **Anomaly detection**: Identifies pressure > 1500 psi, temp out of range, low quality scores
 - **Batching**: Configurable batch size and time window for efficient downstream processing
 
+## Deploy to Expanso Cloud
+
+Ready-to-deploy job specs are in the `jobs/` directory.
+
+### Prerequisites
+
+```bash
+# Configure Expanso CLI with your profile
+expanso-cli profile save prod --endpoint api.expanso.io --token YOUR_TOKEN --select
+
+# Verify connection
+expanso-cli node list
+```
+
+### Available Jobs
+
+| Job | Description | Input | Output |
+|-----|-------------|-------|--------|
+| `sensor-enricher-job.yaml` | Streaming enrichment | stdin | stdout |
+| `sensor-processor-job.yaml` | Batched with summaries | stdin | stdout (batched) |
+| `sensor-to-s3-job.yaml` | Production S3 upload | stdin | S3 (batched) |
+| `sensor-file-watcher-job.yaml` | Watch directory for files | file | stdout |
+
+### Deploy a Job
+
+```bash
+# Deploy streaming enricher to nodes with role=edge-processor
+expanso-cli job deploy jobs/sensor-enricher-job.yaml
+
+# Check status
+expanso-cli job describe sensor-enricher
+expanso-cli execution list --job sensor-enricher
+
+# View logs
+expanso-cli job logs sensor-enricher
+```
+
+### Configure for S3 Output
+
+Set these on your edge nodes before deploying `sensor-to-s3-job.yaml`:
+
+```bash
+# Required
+export S3_BUCKET="my-sensor-data-bucket"
+
+# Optional (have defaults)
+export AWS_REGION="us-east-1"
+export S3_PREFIX="sensor-data/"
+export BATCH_SIZE=1000
+export BATCH_PERIOD="60s"
+```
+
+### Node Labels
+
+Jobs use selectors to target specific nodes. Label your edge nodes appropriately:
+
+```yaml
+# For stdin-based jobs
+role: edge-processor
+
+# For S3 output jobs
+role: edge-processor
+output: s3
+
+# For file watcher jobs
+role: edge-processor
+input: file
+```
+
 ## Use Cases
 
 - Testing edge data validation/cleaning pipelines

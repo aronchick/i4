@@ -1,0 +1,75 @@
+# Job: IoT Sensor to S3
+# Reads sensor data, enriches with lineage, batches, and uploads to S3
+#
+# Usage:
+#   # Set required environment variables on your edge nodes, or use secrets
+#   # Then deploy:
+#   expanso-cli job deploy jobs/sensor-to-s3-job.yaml
+#
+#   # Check deployment
+#   expanso-cli job describe sensor-to-s3
+#
+# Required Configuration (set on edge nodes):
+#   - S3_BUCKET: Target S3 bucket name
+#   - AWS_REGION: AWS region (default: us-east-1)
+#   - AWS credentials via IAM role, env vars, or AWS config
+#
+# Optional Configuration:
+#   - S3_PREFIX: Object key prefix (default: sensor-data/)
+#   - BATCH_SIZE: Records per batch (default: 1000)
+#   - BATCH_PERIOD: Time window (default: 60s)
+
+name: sensor-to-s3
+type: pipeline
+
+selector:
+  match_labels:
+    role: edge-processor
+    output: s3
+    # Uncomment for specific targeting:
+    # env: production
+
+config:
+  input:
+    label: "sensor_stdin_reader"
+    stdin:
+      codec: lines
+
+  pipeline:
+    processors:
+      - mapping: |
+          root = this
+
+          # Add lineage
+          root.lineage = {
+            "edge_node": env("EDGE_NODE_ID").or(env("HOSTNAME")).or("unknown"),
+            "pipeline": "sensor-to-s3",
+            "pipeline_version": "1.0.0",
+            "ingested_at": now().ts_format("2006-01-02T15:04:05.000Z")
+          }
+
+          # Anomaly detection
+          let is_anomaly = false
+          let is_anomaly = if this.type == "pressure" && this.value > 1500 { true } else { $is_anomaly }
+          let is_anomaly = if this.type == "temperature" && (this.value > 180 || this.value < -20) { true } else { $is_anomaly }
+          let is_anomaly = if this.type == "flow_rate" && this.value > 50000 { true } else { $is_anomaly }
+          let is_anomaly = if this.quality_score < 0.8 { true } else { $is_anomaly }
+
+          root.data_quality = {
+            "is_anomaly": $is_anomaly,
+            "validated": true
+          }
+
+  output:
+    label: "s3_writer"
+    aws_s3:
+      bucket: "${S3_BUCKET}"
+      path: "${S3_PREFIX:sensor-data/}${!timestamp_unix:2006}/${!timestamp_unix:01}/${!timestamp_unix:02}/${!env(\"HOSTNAME\")}-${!count:timestamp_unix_nano}.json"
+      region: "${AWS_REGION:us-east-1}"
+      content_type: "application/json"
+      batching:
+        count: ${BATCH_SIZE:1000}
+        period: "${BATCH_PERIOD:60s}"
+        processors:
+          - archive:
+              format: json_array
