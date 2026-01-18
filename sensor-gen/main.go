@@ -61,12 +61,24 @@ func main() {
 	rate := flag.Int("rate", 10000, "Target entries per second")
 	duration := flag.Duration("d", 0, "Duration to run (0 = indefinite)")
 	verbose := flag.Bool("v", false, "Verbose output with stats")
+	appendMode := flag.Bool("append", false, "Append to existing file instead of overwriting")
 	flag.Parse()
 
-	file, err := os.Create(*outputFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating file: %v\n", err)
-		os.Exit(1)
+	// Open file in truncate (default) or append mode
+	var file *os.File
+	var err error
+	if *appendMode {
+		file, err = os.OpenFile(*outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error opening file: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		file, err = os.Create(*outputFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating file: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	defer file.Close()
 
@@ -78,7 +90,11 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	fmt.Printf("Generating sensor data to %s at ~%d entries/sec\n", *outputFile, *rate)
+	mode := "overwriting"
+	if *appendMode {
+		mode = "appending"
+	}
+	fmt.Printf("Generating sensor data to %s (%s) at ~%d entries/sec\n", *outputFile, mode, *rate)
 	if *duration > 0 {
 		fmt.Printf("Duration: %v\n", *duration)
 	}
@@ -86,7 +102,14 @@ func main() {
 
 	// Batch for better throughput
 	batchSize := 1000
-	interval := time.Second / time.Duration(*rate/batchSize)
+	if *rate < batchSize {
+		batchSize = *rate
+	}
+	if batchSize < 1 {
+		batchSize = 1
+	}
+	// Use float64 to avoid integer division truncation
+	interval := time.Duration(float64(time.Second) * float64(batchSize) / float64(*rate))
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -123,6 +146,9 @@ func main() {
 				writer.WriteByte('\n')
 				totalEntries++
 			}
+
+			// Flush after each batch for real-time observability (tail -f)
+			writer.Flush()
 
 			// Periodic stats
 			if *verbose && time.Since(lastReport) >= 5*time.Second {

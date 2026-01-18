@@ -26,7 +26,7 @@ if [ -t 0 ]; then
 fi
 
 docker run --rm $TTY_FLAG \
-    -v "$SCRIPT_DIR/sensor-gen-linux:/sensor-gen:ro" \
+    -v "$SCRIPT_DIR/sensor-gen-linux-amd64:/sensor-gen:ro" \
     -v "$OUTPUT_DIR:/data" \
     -w /data \
     alpine:latest \
