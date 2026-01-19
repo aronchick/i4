@@ -112,12 +112,38 @@ sudo systemctl status sensor-gen
 
 ## Integration with Expanso Edge
 
-The generated JSONL can be consumed by Expanso pipelines:
+The generated JSONL can be consumed by Expanso Edge pipelines deployed via the control plane.
+
+### Edge Node Setup
+
+```bash
+# 1. Install expanso-edge (one-time)
+curl -fsSL https://get.expanso.io/edge/install.sh | bash
+
+# 2. Bootstrap to your organization
+expanso-edge bootstrap --token YOUR_BOOTSTRAP_TOKEN
+
+# 3. Start the edge agent
+expanso-edge run
+```
+
+### Generate Data and Deploy Jobs
 
 ```bash
 # On edge node: Generate data
 ./sensor-gen-linux-amd64 --rate 1000 -o /data/sensors/input.jsonl &
 
-# Deploy Expanso job to process it
-expanso-cli job deploy jobs/sensor-batched-job.yaml
+# From your workstation: Deploy Expanso job to process it
+expanso-cli job deploy jobs/sensor-batched-enriched-job.yaml
+
+# Monitor execution
+expanso-cli execution list --job sensor-batched-enriched
 ```
+
+### Available Jobs
+
+| Job | Description |
+|-----|-------------|
+| `sensor-batched-job.yaml` | Basic batching to local files |
+| `sensor-batched-enriched-job.yaml` | With lineage + anomaly detection |
+| `sensor-batched-to-s3-job.yaml` | Upload to S3 with partitioning |
