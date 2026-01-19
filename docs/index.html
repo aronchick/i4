@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>i4 - IoT Sensor Data Generator for Expanso Edge</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --code-bg: #1e293b;
+            --code-text: #e2e8f0;
+            --success: #22c55e;
+            --warning: #f59e0b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            padding: 3rem 1rem;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .step {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+
+        .step-number {
+            background: var(--primary);
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-content h3 {
+            margin-bottom: 0.5rem;
+            color: var(--text);
+        }
+
+        .step-content p {
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        pre {
+            background: var(--code-bg);
+            color: var(--code-text);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        code {
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+        }
+
+        .inline-code {
+            background: var(--border);
+            padding: 0.125rem 0.375rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+        }
+
+        h2 {
+            color: var(--text);
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .architecture {
+            text-align: center;
+            padding: 2rem;
+            background: var(--bg);
+            border-radius: 8px;
+            margin: 1.5rem 0;
+        }
+
+        .architecture-diagram {
+            font-family: monospace;
+            white-space: pre;
+            text-align: left;
+            display: inline-block;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+
+        .feature {
+            background: var(--bg);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature h4 {
+            color: var(--text);
+            margin-bottom: 0.25rem;
+        }
+
+        .feature p {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            background: var(--bg);
+            font-weight: 600;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .badge-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+            margin-top: 2rem;
+        }
+
+        footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 600px) {
+            header h1 {
+                font-size: 1.75rem;
+            }
+
+            .step {
+                flex-direction: column;
+            }
+
+            .architecture-diagram {
+                font-size: 0.6rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>i4 - IoT Sensor Data Generator</h1>
+        <p>High-throughput sensor simulation for Expanso Edge pipelines</p>
+    </header>
+
+    <div class="container">
+        <section class="card">
+            <h2>What is i4?</h2>
+            <p>i4 is a high-throughput IoT/OT sensor data generator that simulates pipeline infrastructure (oil &amp; gas, energy). It generates realistic sensor telemetry at 10,000+ entries per second for testing edge data processing with <a href="https://expanso.io">Expanso Edge</a>.</p>
+
+            <div class="feature-grid">
+                <div class="feature">
+                    <div class="feature-icon">&#9889;</div>
+                    <h4>High Throughput</h4>
+                    <p>10k+ entries/sec</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">&#128202;</div>
+                    <h4>8 Sensor Types</h4>
+                    <p>Realistic ranges</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">&#9888;</div>
+                    <h4>Anomaly Injection</h4>
+                    <p>2% out-of-range</p>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">&#128230;</div>
+                    <h4>Container Ready</h4>
+                    <p>Docker support</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Architecture</h2>
+            <div class="architecture">
+                <div class="architecture-diagram">
++-------------------+     +-------------------+     +-------------------+
+|   EDGE NODE       |     |  EXPANSO CLOUD    |     |  DATA LAKE        |
+|                   |     |                   |     |                   |
+| +---------------+ |     | +---------------+ |     | +---------------+ |
+| | sensor-gen    | |     | | Control Plane | |     | |     S3        | |
+| | (generates    |------>| | (orchestrates |------>| | (partitioned  | |
+| |  JSONL data)  | |     | |  pipelines)   | |     | |  by date)     | |
+| +---------------+ |     | +---------------+ |     | +---------------+ |
+|        |          |     |                   |     |                   |
+|        v          |     |                   |     |                   |
+| +---------------+ |     |                   |     |                   |
+| | expanso-edge  | |     |                   |     |                   |
+| | (processes    |<------+                   |     |                   |
+| |  batches)     | |                         |     |                   |
+| +---------------+ |                         |     |                   |
++-------------------+                         +-----+-------------------+
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Workflow Steps</h2>
+
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <h3>Generate Sensor Data</h3>
+                    <p>Run the sensor generator on your edge node to create JSONL data files. The generator simulates 8 types of industrial sensors with realistic values and 2% anomaly injection.</p>
+                    <pre><code># Using the binary directly
+./sensor-gen/sensor-gen-linux-amd64 --rate 1000 -v -o /data/sensors/input.jsonl
+
+# Or using Docker
+OUTPUT_DIR=/data/sensors ./sensor-gen/run-in-container.sh -d 60s -v</code></pre>
+                </div>
+            </div>
+
+            <div class="step" style="margin-top: 1.5rem;">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <h3>Bootstrap Edge Node</h3>
+                    <p>Install and bootstrap the Expanso Edge agent to connect your node to the control plane. This is a one-time setup per node.</p>
+                    <pre><code># Install expanso-edge
+curl -fsSL https://get.expanso.io/edge/install.sh | bash
+
+# Bootstrap with your organization token
+expanso-edge bootstrap --token YOUR_BOOTSTRAP_TOKEN
+
+# Start the agent (runs as a daemon)
+expanso-edge run</code></pre>
+                </div>
+            </div>
+
+            <div class="step" style="margin-top: 1.5rem;">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <h3>Deploy Pipeline Jobs</h3>
+                    <p>Use the Expanso CLI to deploy pipeline jobs to your edge nodes. Jobs are matched to nodes based on labels.</p>
+                    <pre><code># Set up CLI profile
+expanso-cli profile save prod --endpoint api.expanso.io --token YOUR_TOKEN --select
+
+# Deploy job to process sensor data
+expanso-cli job deploy jobs/sensor-batched-enriched-job.yaml
+
+# Monitor execution
+expanso-cli execution list --job sensor-batched-enriched</code></pre>
+                </div>
+            </div>
+
+            <div class="step" style="margin-top: 1.5rem;">
+                <div class="step-number">4</div>
+                <div class="step-content">
+                    <h3>Monitor and Verify</h3>
+                    <p>Check the output files or S3 bucket to verify data is being processed correctly with lineage and anomaly detection.</p>
+                    <pre><code># Check local batch files
+ls -la /data/sensors/batched/
+
+# View batch content (enriched with metadata)
+cat /data/sensors/batched/batch_*.json | jq '.batch_meta'</code></pre>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Sensor Types</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Unit</th>
+                        <th>Normal Range</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code class="inline-code">pressure</code></td>
+                        <td>psi</td>
+                        <td>200-1500</td>
+                        <td>Pipeline pressure</td>
+                    </tr>
+                    <tr>
+                        <td><code class="inline-code">temperature</code></td>
+                        <td>fahrenheit</td>
+                        <td>-20 to 180</td>
+                        <td>Ambient/fluid temp</td>
+                    </tr>
+                    <tr>
+                        <td><code class="inline-code">flow_rate</code></td>
+                        <td>bbl/hr</td>
+                        <td>0-50,000</td>
+                        <td>Fluid flow rate</td>
+                    </tr>
+                    <tr>
+                        <td><code class="inline-code">vibration</code></td>
+                        <td>mm/s</td>
+                        <td>0-25</td>
+                        <td>Equipment vibration</td>
+                    </tr>
+                    <tr>
+                        <td><code class="inline-code">corrosion</code></td>
+                        <td>mpy</td>
+                        <td>0-50</td>
+                        <td>Corrosion rate</td>
+                    </tr>
+                    <tr>
+                        <td><code class="inline-code">humidity</code></td>
+                        <td>percent</td>
+                        <td>0-100</td>
+                        <td>Environmental humidity</td>
+                    </tr>
+                    <tr>
+                        <td><code class="inline-code">gas_detector</code></td>
+                        <td>ppm</td>
+                        <td>0-1,000</td>
+                        <td>Gas leak detection</td>
+                    </tr>
+                    <tr>
+                        <td><code class="inline-code">valve_position</code></td>
+                        <td>percent</td>
+                        <td>0-100</td>
+                        <td>Valve open percentage</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Available Pipeline Jobs</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Job</th>
+                        <th>Features</th>
+                        <th>Output</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code class="inline-code">sensor-batched-job.yaml</code></td>
+                        <td>Basic batching (1000 records/10s)</td>
+                        <td>Local files</td>
+                    </tr>
+                    <tr>
+                        <td><code class="inline-code">sensor-batched-enriched-job.yaml</code></td>
+                        <td>Lineage + validation + anomaly detection</td>
+                        <td>Local files</td>
+                    </tr>
+                    <tr>
+                        <td><code class="inline-code">sensor-batched-to-s3-job.yaml</code></td>
+                        <td>Enriched + S3 upload</td>
+                        <td>S3 (partitioned)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Sample Output</h2>
+            <p>The enriched pipeline adds lineage tracking, anomaly detection, and batch summaries:</p>
+            <pre><code>{
+  "batch_meta": {
+    "record_count": 1000,
+    "anomaly_count": 23,
+    "anomaly_rate_pct": 2,
+    "batch_time": "2024-01-14T05:22:52.000Z",
+    "edge_node": "edge-west-01",
+    "pipeline": "sensor-batched-enriched"
+  },
+  "records": [
+    {
+      "sensor_id": "SNS-flo-2977",
+      "timestamp": "2024-01-14T05:22:42.436377Z",
+      "type": "flow_rate",
+      "value": 12984.71,
+      "unit": "bbl/hr",
+      "lineage": {
+        "edge_node": "edge-west-01",
+        "pipeline": "sensor-batched-enriched",
+        "ingested_at": "2024-01-14T05:22:42.000Z"
+      },
+      "data_quality": {
+        "is_anomaly": false,
+        "anomaly_reasons": [],
+        "validated": true
+      }
+    }
+  ]
+}</code></pre>
+        </section>
+
+        <section class="card">
+            <h2>Quick Start</h2>
+            <pre><code># Clone the repo
+git clone https://github.com/aronchick/i4.git
+cd i4
+
+# Run sensor generator (Docker)
+./sensor-gen/run-in-container.sh -d 30s -v
+
+# Or run directly (Linux)
+./sensor-gen/sensor-gen-linux-amd64 -d 30s -v
+
+# View generated data
+tail -5 output.jsonl | jq '.'</code></pre>
+        </section>
+    </div>
+
+    <footer>
+        <p>
+            <a href="https://github.com/aronchick/i4">GitHub Repository</a> |
+            <a href="https://expanso.io">Expanso</a> |
+            <a href="https://docs.expanso.io">Expanso Docs</a>
+        </p>
+        <p style="margin-top: 0.5rem; font-size: 0.875rem;">
+            i4 - IoT/OT Sensor Data Generator for Expanso Edge
+        </p>
+    </footer>
+</body>
+</html>

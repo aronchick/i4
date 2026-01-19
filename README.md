@@ -2,6 +2,8 @@
 
 High-throughput sensor data generator simulating pipeline infrastructure (oil & gas, energy). Generates ~10,000+ JSON entries per second for testing edge data processing, data lakes, and streaming pipelines.
 
+**[View Interactive Walkthrough](docs/index.html)** - A visual guide to the complete workflow.
+
 ## Quick Start
 
 ```bash
@@ -102,25 +104,48 @@ go build -o sensor-gen .
 GOOS=linux GOARCH=amd64 go build -o sensor-gen-linux .
 ```
 
-## Expanso Pipelines
+## Expanso Edge Integration
 
-[Expanso](https://expanso.io) pipelines for edge data processing. Use sensor-gen to generate data, then process with these pipelines.
+[Expanso](https://expanso.io) pipelines for edge data processing. Use sensor-gen to generate data on edge nodes, then process with Expanso Edge pipelines deployed via the control plane.
 
-### Local Testing
+### Workflow Overview
+
+1. **Generate sensor data** on edge nodes using sensor-gen
+2. **Deploy pipeline jobs** via `expanso-cli` to process the data
+3. **Monitor executions** via the Expanso control plane
+
+### Step 1: Generate Data on Edge Node
 
 ```bash
-# 1. Generate sensor data
-./sensor-gen/sensor-gen -d 30s -o output.jsonl
+# On your edge node, run sensor-gen to generate data
+./sensor-gen/sensor-gen-linux-amd64 --rate 1000 -v -o /data/sensors/input.jsonl
 
-# 2. Process with basic batching (1000 records per file)
-INPUT_FILE=output.jsonl expanso-edge run pipelines/sensor-batched.yaml
+# Or run in a container
+OUTPUT_DIR=/data/sensors ./sensor-gen/run-in-container.sh -d 60s -v -o input.jsonl
+```
 
-# 3. Or with lineage, validation, and batch summaries
-INPUT_FILE=output.jsonl expanso-edge run pipelines/sensor-batched-enriched.yaml
+### Step 2: Bootstrap Edge Node
 
-# Custom settings
-INPUT_FILE=output.jsonl BATCH_SIZE=500 BATCH_PERIOD=5s OUTPUT_DIR=./data \
-  expanso-edge run pipelines/sensor-batched-enriched.yaml
+```bash
+# Install expanso-edge (one-time)
+curl -fsSL https://get.expanso.io/edge/install.sh | bash
+
+# Bootstrap to your Expanso Cloud organization
+expanso-edge bootstrap --token YOUR_BOOTSTRAP_TOKEN
+
+# Start the edge agent
+expanso-edge run
+```
+
+### Step 3: Deploy Pipeline Jobs
+
+```bash
+# Deploy from your workstation using expanso-cli
+expanso-cli job deploy jobs/sensor-batched-enriched-job.yaml
+
+# Check status
+expanso-cli job describe sensor-batched-enriched
+expanso-cli execution list --job sensor-batched-enriched
 ```
 
 ### Pipeline Pattern
