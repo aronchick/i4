@@ -492,11 +492,14 @@ cat /data/sensors/batched/batch_*.json | jq '.batch_meta'</code></pre>
 git clone https://github.com/aronchick/i4.git
 cd i4
 
-# Run sensor generator (Docker)
+# Run sensor generator (Docker - no Go required)
 ./sensor-gen/run-in-container.sh -d 30s -v
 
-# Or run directly (Linux)
+# Or run directly (Linux x86_64)
 ./sensor-gen/sensor-gen-linux-amd64 -d 30s -v
+
+# Or run directly (macOS Apple Silicon)
+./sensor-gen/sensor-gen-darwin-arm64 -d 30s -v
 
 # View generated data
 tail -5 output.jsonl | jq '.'</code></pre>
